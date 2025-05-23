@@ -1,0 +1,12 @@
+streamlit
+pandas
+numpy
+matplotlib
+seaborn
+statsforecast
+mlforecast
+lightgbm
+xgboost
+scikit-learn
+darts
+window-ops
