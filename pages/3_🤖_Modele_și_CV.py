@@ -1,44 +1,55 @@
 import streamlit as st
 from forecasting_models import run_statsforecast_models, run_mlforecast_models, combine_forecasts
-# from evaluation import run_all_cross_validation_and_evaluation, evaluate_cross_validation_results, choose_best_forecasting_model
-from evaluation import run_all_cross_validation_and_evaluation # Simplified import
+from evaluation import run_all_cross_validation_and_evaluation
 from state_tools import init_state
 import pickle
 from pathlib import Path
 import streamlit_authenticator as stauth
-import pandas as pd # Ensure pandas is imported
+import pandas as pd
 
-# --- Authentication (aligned with app.py) ---
-# --- încărcare parole ---
-file_path = Path(__file__).resolve().parent.parent / "hashed_pw.pkl" # Adjusted path
-with file_path.open("rb") as file:
+# ----------------------------------
+#  🔐 Authentication Configuration
+# ----------------------------------
+# Load the list of hashed passwords.
+HASHED_PW_PATH = Path(__file__).resolve().parent.parent / "hashed_pw.pkl"
+with HASHED_PW_PATH.open("rb") as file:
     hashed_passwords = pickle.load(file)
 
-names      = ["Sandru Rares", "Trial Account"]
-usernames  = ["rrares", "trial"]
+# Define users and build the credentials dictionary.
+NAMES = ["Sandru Rares", "Trial Account"]
+USERNAMES = ["rrares", "trial"]
 
-credentials = {"usernames": {}}
-for idx, un in enumerate(usernames):
-    credentials["usernames"][un] = {
-        "name": names[idx],
-        "password": hashed_passwords[idx]
+credentials = {
+    "usernames": {
+        un: {"name": nm, "password": pw}
+        for un, nm, pw in zip(USERNAMES, NAMES, hashed_passwords)
     }
+}
 
+# Instantiate the authenticator.
 authenticator = stauth.Authenticate(
-    credentials=credentials, # Use keyword arguments
-    cookie_name="some_cookie_name",    # Must match app.py
-    key="some_signature_key",          # Must match app.py
-    cookie_expiry_days=30
+    credentials=credentials,
+    cookie_name="demo_app_cookie",   # Standardized cookie name
+    key="demo_app_signature",        # Standardized secret key
+    cookie_expiry_days=30,
 )
 
-# --- Retrieve authentication status from session state ---
-name_from_session = st.session_state.get("name")
-authentication_status_from_session = st.session_state.get("authentication_status")
-# username_from_session = st.session_state.get("username") # Uncomment if 'username' is needed
+# Draw the login form.
+# This call also sets session_state variables: 'name', 'authentication_status', 'username'
+authenticator.login() # Using the standard login call
 
-# --- Page logic based on authentication status ---
-if authentication_status_from_session:
+# -------------------------------------------------------------------
+#  🔑 Handle the authentication state held in `st.session_state`
+# -------------------------------------------------------------------
+auth_status = st.session_state.get("authentication_status")
+name_from_session = st.session_state.get("name") # Get name from session_state
+# username_from_session = st.session_state.get("username") # Available if needed
+
+if auth_status:
+    # -------------------- Logged-in area --------------------
     authenticator.logout("Logout", "sidebar")
+    st.sidebar.success(f"Logged in as **{name_from_session}**") # Display name from session_state
+
     init_state() # Initialize state for authenticated users
 
     # --- Page specific content ---
@@ -87,7 +98,7 @@ if authentication_status_from_session:
 
     forecast_df = combine_forecasts(sf_forecast, mlf_forecast_no_exog, mlf_forecast_with_exog)
     
-    st.session_state.mlf_model_no_exog = mlf_model_no_exog # Ensure these are in session state before CV call
+    st.session_state.mlf_model_no_exog = mlf_model_no_exog
     st.session_state.mlf_model_with_exog = mlf_model_with_exog
 
     cv_df, eval_df, best_model, leaderboard = run_all_cross_validation_and_evaluation(
@@ -107,8 +118,9 @@ if authentication_status_from_session:
     st.success(f"🎉 Modele antrenate. Cel mai bun: **{best_model}**")
     st.dataframe(leaderboard)
 
-elif authentication_status_from_session == False:
+elif auth_status is False:
     st.error('Username/password is incorrect')
-elif authentication_status_from_session is None:
+else: # auth_status is None
     st.warning('Please enter your username and password')
-    st.info("Please log in through the main application page to access this page.")
+    # Optionally, guide to login if on a sub-page and not logged in.
+    # st.info("Please log in to access this page.")

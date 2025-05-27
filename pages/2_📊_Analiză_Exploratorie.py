@@ -5,47 +5,62 @@ import pickle
 from pathlib import Path
 import streamlit_authenticator as stauth
 
-# --- Authentication ---
-# --- încărcare parole ---
-file_path = Path(__file__).resolve().parent.parent / "hashed_pw.pkl" # Adjusted path
-with file_path.open("rb") as file:
+# ----------------------------------
+#  🔐 Authentication Configuration
+# ----------------------------------
+# Load the list of hashed passwords.
+HASHED_PW_PATH = Path(__file__).resolve().parent.parent / "hashed_pw.pkl"
+with HASHED_PW_PATH.open("rb") as file:
     hashed_passwords = pickle.load(file)
 
-names      = ["Sandru Rares", "Trial Account"]
-usernames  = ["rrares", "trial"]
+# Define users and build the credentials dictionary.
+NAMES = ["Sandru Rares", "Trial Account"]
+USERNAMES = ["rrares", "trial"]
 
-credentials = {"usernames": {}}
-for idx, un in enumerate(usernames):
-    credentials["usernames"][un] = {
-        "name": names[idx],
-        "password": hashed_passwords[idx]
+credentials = {
+    "usernames": {
+        un: {"name": nm, "password": pw}
+        for un, nm, pw in zip(USERNAMES, NAMES, hashed_passwords)
     }
+}
 
+# Instantiate the authenticator.
 authenticator = stauth.Authenticate(
-    credentials,
-    "some_cookie_name",
-    "some_signature_key",
-    cookie_expiry_days=30
+    credentials=credentials,
+    cookie_name="demo_app_cookie",   # Standardized cookie name
+    key="demo_app_signature",        # Standardized secret key
+    cookie_expiry_days=30,
 )
 
-name, authentication_status, username = authenticator.login('main', fields = {'Form name': 'Login'})
+# Draw the login form.
+# This call also sets session_state variables: 'name', 'authentication_status', 'username'
+authenticator.login() # Using the standard login call
 
-if not authentication_status:
-    if authentication_status == False:
-        st.error('Username/password is incorrect')
-    elif authentication_status == None:
-        st.warning('Please enter your username and password')
-    st.stop()
+# -------------------------------------------------------------------
+#  🔑 Handle the authentication state held in `st.session_state`
+# -------------------------------------------------------------------
+auth_status = st.session_state.get("authentication_status")
+name = st.session_state.get("name") # Get name from session_state
+# username = st.session_state.get("username") # Available if needed
 
-authenticator.logout("Logout", "sidebar")
-# --- End Authentication ---
+if auth_status:
+    # -------------------- Logged-in area --------------------
+    authenticator.logout("Logout", "sidebar")
+    st.sidebar.success(f"Logged in as **{name}**") # Display name from session_state
 
-init_state()
-st.header("📊 Analiză Exploratorie")
+    init_state() # Initialize state for authenticated users
+    st.header("📊 Analiză Exploratorie")
 
-Y_df = st.session_state.get("Y_df")
-if Y_df is None:
-    st.info("Întâi încarcă datele în pagina **Upload & Config**.")
-    st.stop()
+    Y_df = st.session_state.get("Y_df")
+    if Y_df is None:
+        st.info("Întâi încarcă datele în pagina **Upload & Config**.")
+        st.stop()
 
-perform_exploratory_analysis(Y_df)
+    perform_exploratory_analysis(Y_df)
+
+elif auth_status is False:
+    st.error("Username/password is incorrect")
+else: # auth_status is None
+    st.warning("Please enter your username and password")
+    # Optionally, guide to login if on a sub-page and not logged in.
+    # st.info("Please log in to access this page.")
