@@ -24,9 +24,9 @@ with st.spinner("🧠 StatsForecast…"):
     sf_model, sf_forecast = run_statsforecast_models(Y_df, horizon, season_length)
 
 with st.spinner("🧠 MLForecast…"):
-    mlf_model, mlf_forecast = run_mlforecast_models(Y_df, horizon, window_size_ml)
+    mlf_model, mlf_forecast_no_exog, mlf_forecast_with_exog = run_mlforecast_models(Y_df, horizon, window_size_ml)
 
-forecast_df = combine_forecasts(sf_forecast, mlf_forecast)
+forecast_df = combine_forecasts(sf_forecast, mlf_forecast_no_exog, mlf_forecast_with_exog)
 
 # Cross-validation & evaluation
 cv_df = perform_cross_validation(sf_model, mlf_model, Y_df, horizon)

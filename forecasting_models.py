@@ -95,50 +95,83 @@ def run_statsforecast_models(Y: pd.DataFrame, horizon: int, season_length: int):
 
 @st.cache_resource
 def run_mlforecast_models(Y: pd.DataFrame, horizon: int, window_size_ml: int): # Renamed _h_param_deprecated
-    models_ml = [
-        LGBMRegressor(max_depth=10, random_state=42),
-        XGBRegressor(max_depth=10, eval_metric='rmse', random_state=42),
-        LinearRegression()
-    ]
+    models_ml_dict = {
+        'LGBMRegressor': LGBMRegressor(max_depth=10, random_state=42),
+        'XGBRegressor': XGBRegressor(max_depth=10, eval_metric='rmse', random_state=42),
+        'LinearRegression': LinearRegression()
+    }
     
     # Use window_size_ml for lags if provided and valid, otherwise default
     lags_list = list(range(1, max(1, window_size_ml) + 1)) if window_size_ml > 0 else list(range(1,7))
+    date_features_list = ['year', 'month', 'day', 'dayofweek', 'quarter', 'week', 'dayofyear']
 
-    mlf = MLForecast(
-        models=models_ml,
+    # --- Run 1: Models without exogenous features ---
+    mlf_no_exog = MLForecast(
+        models=models_ml_dict,
         freq='D',
         lags=lags_list,
-        lag_transforms={1: [expanding_mean]}, # Consider if lag transforms need adjustment with window_size_ml
-        date_features=['year', 'month', 'day', 'dayofweek',
-                       'quarter', 'week', 'dayofyear'],
+        lag_transforms={1: [expanding_mean]},
+        date_features=date_features_list,
     )
-    
-    # Prepare the main DataFrame for fitting MLForecast
-    # It should contain unique_id, ds, y, and any dynamic exogenous features.
-    df_for_ml_fit_cols = ['unique_id', 'ds', 'y']
-    future_X_for_ml = None # For predict method
+    df_for_ml_fit_no_exog = Y[['unique_id', 'ds', 'y']]
+    mlf_no_exog.fit(df_for_ml_fit_no_exog, static_features=[], prediction_intervals=PredictionIntervals())
+    fcst_ml_no_exog = mlf_no_exog.predict(h=horizon, level=[90])
+    fcst_ml_no_exog = fcst_ml_no_exog.rename(columns={
+        model_name: f"{model_name}_no_exog" for model_name in models_ml_dict.keys()
+    })
+    # Also rename lo-90 and hi-90 if they exist for specific models without exog
+    for model_name in models_ml_dict.keys():
+        if f'{model_name}-lo-90' in fcst_ml_no_exog.columns:
+            fcst_ml_no_exog = fcst_ml_no_exog.rename(columns={
+                f'{model_name}-lo-90': f"{model_name}_no_exog-lo-90",
+                f'{model_name}-hi-90': f"{model_name}_no_exog-hi-90",
+            })
+
+    # --- Run 2: Models with exogenous features (if applicable) ---
+    fcst_ml_with_exog = None
+    mlf_to_return = mlf_no_exog # Default to no_exog version for CV
 
     if 'external_feature' in Y.columns:
-        # Ensure external_feature is processed on the original Y DataFrame
-        # as _prepare_future_X_df might also use it.
-        Y['external_feature'] = pd.to_numeric(Y['external_feature'], errors='coerce').ffill().bfill()
-        if not Y['external_feature'].isnull().all(): # Proceed only if external_feature is usable
-            df_for_ml_fit_cols.append('external_feature')
-            # future_X_for_ml will contain future values of external_feature
-            future_X_for_ml = _prepare_future_X_df(Y, horizon, 'external_feature')
+        Y_copy = Y.copy() # Work on a copy to avoid modifying original Y in cache
+        Y_copy['external_feature'] = pd.to_numeric(Y_copy['external_feature'], errors='coerce').ffill().bfill()
+        if not Y_copy['external_feature'].isnull().all():
+            st.info("Antrenare modele ML cu caracteristică exogenă...")
+            mlf_with_exog = MLForecast(
+                models=models_ml_dict,
+                freq='D',
+                lags=lags_list,
+                lag_transforms={1: [expanding_mean]},
+                date_features=date_features_list,
+            )
+            df_for_ml_fit_cols_with_exog = ['unique_id', 'ds', 'y', 'external_feature']
+            df_for_ml_fit_with_exog = Y_copy[df_for_ml_fit_cols_with_exog]
+            future_X_for_ml_with_exog = _prepare_future_X_df(Y_copy, horizon, 'external_feature')
+            
+            mlf_with_exog.fit(df_for_ml_fit_with_exog, static_features=[], prediction_intervals=PredictionIntervals())
+            fcst_ml_with_exog = mlf_with_exog.predict(h=horizon, X_df=future_X_for_ml_with_exog, level=[90])
+            fcst_ml_with_exog = fcst_ml_with_exog.rename(columns={
+                model_name: f"{model_name}_with_exog" for model_name in models_ml_dict.keys()
+            })
+            # Also rename lo-90 and hi-90 if they exist for specific models with exog
+            for model_name in models_ml_dict.keys():
+                if f'{model_name}-lo-90' in fcst_ml_with_exog.columns:
+                    fcst_ml_with_exog = fcst_ml_with_exog.rename(columns={
+                        f'{model_name}-lo-90': f"{model_name}_with_exog-lo-90",
+                        f'{model_name}-hi-90': f"{model_name}_with_exog-hi-90",
+                    })
+            mlf_to_return = mlf_with_exog # For CV, use the model trained with exog if available
         else:
             st.warning("Coloana 'external_feature' conține numai NaN după procesare și nu va fi utilizată de modelele ML.")
     
-    df_for_ml_fit = Y[df_for_ml_fit_cols]
-
-    # MLForecast's fit method expects dynamic exogenous features to be part of the main DataFrame.
-    # The X_df parameter in fit is for static features.
-    mlf.fit(df_for_ml_fit, static_features=[], prediction_intervals=PredictionIntervals())
-    fcst = mlf.predict(h=horizon, X_df=future_X_for_ml, level=[90])
-    return mlf, fcst
+    return mlf_to_return, fcst_ml_no_exog, fcst_ml_with_exog
 
 # ───────────────────────── COMBINARE PREVIZIUNI ───────────────────────── #
 
 @st.cache_data
-def combine_forecasts(sf_fcst: pd.DataFrame, mlf_fcst: pd.DataFrame) -> pd.DataFrame:
-    return sf_fcst.merge(mlf_fcst, on=['unique_id', 'ds'], how='left')
+def combine_forecasts(sf_fcst: pd.DataFrame, mlf_fcst_no_exog: pd.DataFrame, mlf_fcst_with_exog: pd.DataFrame | None) -> pd.DataFrame:
+    combined_df = sf_fcst.merge(mlf_fcst_no_exog, on=['unique_id', 'ds'], how='left')
+    if mlf_fcst_with_exog is not None:
+        # Ensure 'y' column is not duplicated if present in mlf_fcst_with_exog from predict
+        cols_to_merge = [col for col in mlf_fcst_with_exog.columns if col not in ['unique_id', 'ds', 'y']]
+        combined_df = combined_df.merge(mlf_fcst_with_exog[['unique_id', 'ds'] + cols_to_merge], on=['unique_id', 'ds'], how='left')
+    return combined_df

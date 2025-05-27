@@ -24,13 +24,35 @@ visualize_forecasting_results(
 
 # --- Export logic (unchanged from your original)
 st.subheader("📁 Exportă Previziuni")
-model_cols = [c for c in forecast_df.columns if c not in ("unique_id", "ds")]
-options = ["🏆 Cel mai bun model"] + model_cols
-choice = st.selectbox("Selectează previziunea:", options)
+# Get all potential model forecast columns from the forecast_df
+all_forecast_columns = [
+    c for c in forecast_df.columns
+    if c not in ("unique_id", "ds", "y") and not c.endswith("-lo-90") and not c.endswith("-hi-90")
+]
+options = ["🏆 Cel mai bun model"] + sorted(list(set(all_forecast_columns))) # Use set to ensure unique names
+choice = st.selectbox("Selectează previziunea pentru export:", options)
 
-export_col = best_model if choice == "🏆 Cel mai bun model" else choice
-export_df = forecast_df[["unique_id", "ds", export_col]].rename(columns={export_col: "yhat"})
+export_col_name = None
+if choice == "🏆 Cel mai bun model":
+    # best_model is a base name like 'LGBMRegressor' or 'AutoETS'
+    # We need to find the corresponding column in forecast_df
+    # Prioritize '_with_exog' for ML models if it exists
+    potential_with_exog = f"{best_model}_with_exog"
+    potential_no_exog = f"{best_model}_no_exog"
+    if potential_with_exog in forecast_df.columns:
+        export_col_name = potential_with_exog
+    elif potential_no_exog in forecast_df.columns:
+        export_col_name = potential_no_exog
+    elif best_model in forecast_df.columns: # For StatsForecast models or ML models if somehow no suffix was applied
+        export_col_name = best_model
+    else:
+        st.error(f"Nu s-a putut găsi coloana pentru cel mai bun model '{best_model}' în setul de date al previziunilor.")
+        st.stop()
+else:
+    export_col_name = choice
 
-csv = export_df.to_csv(index=False).encode("utf-8")
-st.download_button("📥 Download CSV", data=csv, file_name=f"forecast_{export_col}.csv")
-st.dataframe(export_df.head())
+if export_col_name and export_col_name in forecast_df.columns:
+    export_df = forecast_df[["unique_id", "ds", export_col_name]].rename(columns={export_col_name: "yhat"})
+    csv = export_df.to_csv(index=False).encode("utf-8")
+    st.download_button("📥 Download CSV", data=csv, file_name=f"forecast_{export_col_name}.csv")
+    st.dataframe(export_df.head())
