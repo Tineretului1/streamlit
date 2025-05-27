@@ -2,6 +2,45 @@ import streamlit as st
 from forecasting_models import run_statsforecast_models, run_mlforecast_models, combine_forecasts
 from evaluation import run_all_cross_validation_and_evaluation, evaluate_cross_validation_results, choose_best_forecasting_model
 from state_tools import init_state
+import pickle
+from pathlib import Path
+import streamlit_authenticator as stauth
+
+# --- Authentication ---
+# --- încărcare parole ---
+file_path = Path(__file__).resolve().parent.parent / "hashed_pw.pkl" # Adjusted path
+with file_path.open("rb") as file:
+    hashed_passwords = pickle.load(file)
+
+names      = ["Sandru Rares", "Trial Account"]
+usernames  = ["rrares", "trial"]
+
+credentials = {"usernames": {}}
+for idx, un in enumerate(usernames):
+    credentials["usernames"][un] = {
+        "name": names[idx],
+        "password": hashed_passwords[idx]
+    }
+
+authenticator = stauth.Authenticate(
+    credentials,
+    "some_cookie_name",
+    "some_signature_key",
+    cookie_expiry_days=30
+)
+
+name, authentication_status, username = authenticator.login("Login", "sidebar")
+
+if not authentication_status:
+    if authentication_status == False:
+        st.error('Username/password is incorrect')
+    elif authentication_status == None:
+        st.warning('Please enter your username and password')
+    st.stop()
+
+authenticator.logout("Logout", "sidebar")
+# --- End Authentication ---
+
 
 init_state()
 st.header("🤖 Antrenare Modele & Cross-Validation")
