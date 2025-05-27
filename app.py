@@ -2,38 +2,44 @@ import pickle
 from pathlib import Path
 import streamlit as st
 import streamlit_authenticator as stauth
-from state_tools import init_state   # proprie
+from state_tools import init_state   # propriu modul
 
 st.set_page_config(page_title="🚀 Pipeline de Prognoză", layout="wide")
 
 # --- încărcare parole ---
 file_path = Path(__file__).parent / "hashed_pw.pkl"
 with file_path.open("rb") as file:
-    hashed_passwords = pickle.load(file)     # listă sau dict, vezi mai jos
+    hashed_passwords = pickle.load(file)  # listă sau dict
 
-names      = ["Sandru Rares", "Trial Account"]
-usernames  = ["rrares", "trial"]
+names = ["Sandru Rares", "Trial Account"]
+usernames = ["rrares", "trial"]
 
-# --- construim structura cerută de v0.3+ ---
+# --- construim structura pentru streamlit-authenticator 0.3.1+ ---
 credentials = {"usernames": {}}
 for idx, un in enumerate(usernames):
     credentials["usernames"][un] = {
         "name": names[idx],
-        "password": hashed_passwords[idx]      # ↯ dacă ai salvat ca listă
-        # "password": hashed_passwords[un]     # ↯ dacă ai salvat ca dict
+        "password": hashed_passwords[idx]  # dacă ai salvat ca listă
+        # "password": hashed_passwords[un]  # dacă ai salvat ca dict
     }
 
-# --- iniţializăm autentificatorul ---
+# --- autentificator ---
 authenticator = stauth.Authenticate(
-    credentials,
-    "some_cookie_name",
-    "some_signature_key",
+    credentials=credentials,
+    cookie_name="some_cookie_name",
+    key="some_signature_key",
     cookie_expiry_days=30
 )
 
-name, authentication_status, username = authenticator.login("Login", 'main')
+# --- login UI (fix aici) ---
+authenticator.login(location='main', key='Login')
 
-if authentication_status:
+name = st.session_state.get("name")
+authentication_status = st.session_state.get("authentication_status")
+username = st.session_state.get("username")
+
+# --- logica aplicației ---
+if st.session_state.get("authentication_status"):
     authenticator.logout("Logout", "sidebar")
     init_state()
 
@@ -54,5 +60,5 @@ if authentication_status:
         st.info("Începe cu pagina **Upload & Config** ➡️")
 elif authentication_status == False:
     st.error('Username/password is incorrect')
-elif authentication_status == None:
+elif authentication_status is None:
     st.warning('Please enter your username and password')
