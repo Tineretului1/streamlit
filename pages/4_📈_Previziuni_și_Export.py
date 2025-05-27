@@ -28,7 +28,7 @@ authenticator = stauth.Authenticate(
     cookie_expiry_days=30
 )
 
-name, authentication_status, username = authenticator.login("Login", "main")
+name, authentication_status, username = authenticator.login("Login", 'main')
 
 if not authentication_status:
     if authentication_status == False:
