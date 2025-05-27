@@ -19,10 +19,12 @@ visualize_forecasting_results(
     forecast_df,
     st.session_state.cv_df,
     st.session_state.eval_df,
+    st.session_state.leaderboard, # Pass leaderboard
+    st.session_state.best_model,   # Pass best_model_overall
     st.session_state.horizon,
 )
 
-# --- Export logic (unchanged from your original)
+# --- Export logic
 st.subheader("📁 Exportă Previziuni")
 # Get all potential model forecast columns from the forecast_df
 all_forecast_columns = [

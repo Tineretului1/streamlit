@@ -71,16 +71,17 @@ def run_statsforecast_models(Y: pd.DataFrame, horizon: int, season_length: int):
     future_X_for_sf = None
     ets_model = AutoETS(season_length=season_length)
 
-    if 'external_feature' in Y.columns:
-        Y['external_feature'] = pd.to_numeric(Y['external_feature'], errors='coerce').ffill().bfill()
-        if not Y['external_feature'].isnull().all(): # Proceed only if external_feature is usable
-            ets_model = AutoETS(season_length=season_length) # Removed exogenous, as it's handled by StatsForecast wrapper
-            future_X_for_sf = _prepare_future_X_df(Y, horizon, 'external_feature')
-        else:
-            st.warning("Coloana 'external_feature' conține numai NaN după procesare și nu va fi utilizată de AutoETS.")
+    # Assuming Y['external_feature'] is already processed if it exists, from pages/3_...
+    if 'external_feature' in Y.columns and not Y['external_feature'].isnull().all():
+        # ets_model = AutoETS(season_length=season_length) # AutoETS will pick up exog if present in Y
+        future_X_for_sf = _prepare_future_X_df(Y, horizon, 'external_feature')
+        st.info("Caracteristica exogenă va fi utilizată de AutoETS (dacă este cazul) și pentru generarea valorilor viitoare.")
+    else:
+        if 'external_feature' in Y.columns:
+             st.warning("Coloana 'external_feature' conține numai NaN și nu va fi utilizată de AutoETS.")
+        # ets_model remains the default one without explicit exog handling here
 
-
-    model_list.append(ets_model)
+    model_list.append(ets_model) # ets_model is defined before this block
     
     sf = StatsForecast(models=model_list, freq='D', n_jobs=1)
     
@@ -128,42 +129,42 @@ def run_mlforecast_models(Y: pd.DataFrame, horizon: int, window_size_ml: int): #
             })
 
     # --- Run 2: Models with exogenous features (if applicable) ---
+    mlf_with_exog_obj = None # Initialize to None
     fcst_ml_with_exog = None
-    mlf_to_return = mlf_no_exog # Default to no_exog version for CV
+    # mlf_to_return = mlf_no_exog # Default to no_exog version for CV # This line is removed, we return both objects
 
-    if 'external_feature' in Y.columns:
-        Y_copy = Y.copy() # Work on a copy to avoid modifying original Y in cache
-        Y_copy['external_feature'] = pd.to_numeric(Y_copy['external_feature'], errors='coerce').ffill().bfill()
-        if not Y_copy['external_feature'].isnull().all():
-            st.info("Antrenare modele ML cu caracteristică exogenă...")
-            mlf_with_exog = MLForecast(
-                models=models_ml_dict,
-                freq='D',
-                lags=lags_list,
-                lag_transforms={1: [expanding_mean]},
-                date_features=date_features_list,
-            )
-            df_for_ml_fit_cols_with_exog = ['unique_id', 'ds', 'y', 'external_feature']
-            df_for_ml_fit_with_exog = Y_copy[df_for_ml_fit_cols_with_exog]
-            future_X_for_ml_with_exog = _prepare_future_X_df(Y_copy, horizon, 'external_feature')
-            
-            mlf_with_exog.fit(df_for_ml_fit_with_exog, static_features=[], prediction_intervals=PredictionIntervals())
-            fcst_ml_with_exog = mlf_with_exog.predict(h=horizon, X_df=future_X_for_ml_with_exog, level=[90])
-            fcst_ml_with_exog = fcst_ml_with_exog.rename(columns={
-                model_name: f"{model_name}_with_exog" for model_name in models_ml_dict.keys()
-            })
-            # Also rename lo-90 and hi-90 if they exist for specific models with exog
-            for model_name in models_ml_dict.keys():
-                if f'{model_name}-lo-90' in fcst_ml_with_exog.columns:
-                    fcst_ml_with_exog = fcst_ml_with_exog.rename(columns={
-                        f'{model_name}-lo-90': f"{model_name}_with_exog-lo-90",
-                        f'{model_name}-hi-90': f"{model_name}_with_exog-hi-90",
-                    })
-            mlf_to_return = mlf_with_exog # For CV, use the model trained with exog if available
-        else:
-            st.warning("Coloana 'external_feature' conține numai NaN după procesare și nu va fi utilizată de modelele ML.")
+    # Assume Y['external_feature'] is already processed from pages/3_...
+    # The condition for using external_feature is its presence and not being all NaN.
+    if 'external_feature' in Y.columns and not Y['external_feature'].isnull().all():
+        st.info("Antrenare modele ML cu caracteristică exogenă...")
+        mlf_with_exog_obj = MLForecast(
+            models=models_ml_dict,
+            freq='D',
+            lags=lags_list,
+            lag_transforms={1: [expanding_mean]},
+            date_features=date_features_list,
+        )
+        df_for_ml_fit_with_exog = Y[['unique_id', 'ds', 'y', 'external_feature']]
+        future_X_for_ml_with_exog = _prepare_future_X_df(Y, horizon, 'external_feature')
+        
+        mlf_with_exog_obj.fit(df_for_ml_fit_with_exog, static_features=[], prediction_intervals=PredictionIntervals())
+        fcst_ml_with_exog = mlf_with_exog_obj.predict(h=horizon, X_df=future_X_for_ml_with_exog, level=[90])
+        
+        # Correct indentation for rename logic
+        fcst_ml_with_exog = fcst_ml_with_exog.rename(columns={
+            model_name: f"{model_name}_with_exog" for model_name in models_ml_dict.keys()
+        })
+        for model_name in models_ml_dict.keys():
+            if f'{model_name}-lo-90' in fcst_ml_with_exog.columns:
+                fcst_ml_with_exog = fcst_ml_with_exog.rename(columns={
+                    f'{model_name}-lo-90': f"{model_name}_with_exog-lo-90",
+                    f'{model_name}-hi-90': f"{model_name}_with_exog-hi-90",
+                })
+    else: # This 'else' corresponds to the 'if external_feature in Y.columns and not Y['external_feature'].isnull().all()'
+        if 'external_feature' in Y.columns: # Only warn if the column was there but unusable
+            st.warning("Coloana 'external_feature' nu este utilizabilă (posibil numai NaN) și nu va fi utilizată de modelele ML 'with_exog'.")
     
-    return mlf_to_return, fcst_ml_no_exog, fcst_ml_with_exog
+    return mlf_no_exog, mlf_with_exog_obj, fcst_ml_no_exog, fcst_ml_with_exog
 
 # ───────────────────────── COMBINARE PREVIZIUNI ───────────────────────── #
 

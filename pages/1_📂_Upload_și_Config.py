@@ -47,3 +47,12 @@ if run_btn:
 
     st.success("✅ Date pregătite! Continuă la paginile următoare.")
     st.dataframe(Y_df.head())
+
+    # Add download button for the full Y_df
+    csv_Y_df = Y_df.to_csv(index=False).encode('utf-8')
+    st.download_button(
+        label="📥 Descarcă Datele Procesate (Y_df.csv)",
+        data=csv_Y_df,
+        file_name='Y_df_processed.csv',
+        mime='text/csv',
+    )

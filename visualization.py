@@ -10,162 +10,131 @@ from statsforecast import StatsForecast # For the plot helper
 # ─────────────────── VIZUALIZARE REZULTATE ─────────────────── #
 
 def visualize_forecasting_results(Y: pd.DataFrame, fcst: pd.DataFrame,
-                                  _cv: pd.DataFrame, eval_df: pd.DataFrame, horizon: int):
-    st.subheader("Vizualizarea Rezultatelor")
+                                  _cv: pd.DataFrame, eval_df: pd.DataFrame,
+                                  leaderboard: pd.DataFrame, best_model_overall: str,
+                                  horizon: int):
+    st.header("📈 Analiza Performanței Modelelor")
 
+    # --- Section 1: Overall Best Model Performance ---
+    st.subheader(f"🏆 Performanța Modelului General Câștigător: **{best_model_overall}**")
+    
+    st.write("Clasament General (Leaderboard) pe baza mediei erorilor de cross-validare:")
+    st.dataframe(leaderboard.style.highlight_min(axis=0, subset=['mse', 'mae', 'mape', 'smape', 'composite'], color='lightgreen'))
+
+    plt.figure(figsize=(10, 6))
+    leaderboard_sorted_composite = leaderboard.sort_values('composite')
+    sns.barplot(x=leaderboard_sorted_composite['composite'], y=leaderboard_sorted_composite.index, palette='viridis', orient='h')
+    plt.xlabel('Eroare Compusă Medie (mai mic = mai bun)')
+    plt.ylabel('Model')
+    plt.title('Performanța Generală a Modelelor (Eroare Compusă)')
+    plt.tight_layout()
+    display_current_fig('overall_performance_composite_barchart')
+
+    # Keep num_ids_to_plot and ids_to_plot for the exogenous impact section
     num_ids_to_plot = min(3, Y['unique_id'].nunique())
     ids_to_plot = Y['unique_id'].unique()[:num_ids_to_plot]
+    
+    st.divider()
 
-    st.write(f"Afișarea previziunilor pentru primele {num_ids_to_plot} unique_id-uri (doar modelul câștigător):")
-
-    # Determine a primary metric to choose the winner, e.g., 'smape' or 'mse'
-    # If you want to let the user choose or have a default, you can add that logic
-    primary_metric = 'smape' # Or 'mse', or make it configurable
-
-    for uid in ids_to_plot:
-        Y_uid = Y[Y['unique_id'] == uid]
-        fcst_uid = fcst[fcst['unique_id'] == uid]
-
-        # Find the winning model for the current uid based on the primary metric
-        eval_df_uid = eval_df[(eval_df['unique_id'] == uid) & (eval_df['metric'] == primary_metric)]
-        if not eval_df_uid.empty:
-            winning_model_name = eval_df_uid.loc[eval_df_uid['error'].idxmin()]['model']
-        else:
-            # Fallback if no evaluation data for this uid/metric (e.g., plot all or first available)
-            # For simplicity, let's try to plot the first model if no winner is found
-            model_columns_available = [
-                col for col in fcst_uid.columns
-                if col not in ['unique_id', 'ds'] and not col.endswith('-lo-90') and not col.endswith('-hi-90')
-            ]
-            winning_model_name = model_columns_available[0] if model_columns_available else None
-
-        # Determine the actual column name to plot from fcst_uid based on winning_model_name
-        plot_col_name = None
-        ci_lo_col = None
-        ci_hi_col = None
-
-        if winning_model_name:
-            # Check for ML model suffixes first
-            potential_with_exog = f"{winning_model_name}_with_exog"
-            potential_no_exog = f"{winning_model_name}_no_exog"
-            
-            if potential_with_exog in fcst_uid.columns:
-                plot_col_name = potential_with_exog
-            elif potential_no_exog in fcst_uid.columns:
-                plot_col_name = potential_no_exog
-            elif winning_model_name in fcst_uid.columns: # For StatsForecast models or direct match
-                plot_col_name = winning_model_name
-            
-            if plot_col_name:
-                # Check for corresponding CI columns
-                if f'{plot_col_name}-lo-90' in fcst_uid.columns and f'{plot_col_name}-hi-90' in fcst_uid.columns:
-                    ci_lo_col = f'{plot_col_name}-lo-90'
-                    ci_hi_col = f'{plot_col_name}-hi-90'
-                # Fallback for older generic CI names if specific ones aren't found (less likely with new naming)
-                elif 'lo-90' in fcst_uid.columns and 'hi-90' in fcst_uid.columns and winning_model_name not in ['LGBMRegressor', 'XGBRegressor', 'LinearRegression']: # only for non-ML
-                     # This generic CI might not be accurate for the specific winning model if it's an ML one
-                     # but can be a fallback for StatsForecast models if their CIs are generically named.
-                     # However, StatsForecast models usually have model-specific CI names too.
-                     pass # Prefer model-specific CIs handled above.
-
-        plt.figure(figsize=(12,6))
-        plt.plot(Y_uid['ds'], Y_uid['y'], label='Actual Sales', color='black')
-
-        if plot_col_name:
-            plt.plot(fcst_uid['ds'], fcst_uid[plot_col_name], label=f'{winning_model_name} (Winner - {primary_metric.upper()})', linestyle='--')
-            if ci_lo_col and ci_hi_col:
-                 plt.fill_between(fcst_uid['ds'],
-                                 fcst_uid[ci_lo_col],
-                                 fcst_uid[ci_hi_col],
-                                 alpha=0.2, label=f'{winning_model_name} 90% CI')
-        elif winning_model_name:
-            st.caption(f"Nu s-a putut găsi coloana de previziune pentru modelul câștigător '{winning_model_name}' în setul de date pentru {uid}.")
-
-
-        plt.title(f'Previziuni (Model Câștigător: {winning_model_name or "N/A"}) vs Real pentru {uid} (Ultimele {3 * horizon} zile din istoric)')
-        plt.legend()
-        plt.xlabel('Data')
-        plt.ylabel('Vânzări')
-
-        historical_to_show = Y_uid.tail(3 * horizon)
-        if not historical_to_show.empty and not fcst_uid.empty:
-            min_date = min(historical_to_show['ds'].min(), fcst_uid['ds'].min())
-            max_date = fcst_uid['ds'].max()
-            plt.xlim([min_date, max_date])
-
-        display_current_fig(f'forecast_vs_real_winner_{uid}')
-
-    # --- New section for comparing with/without external feature ---
-    st.subheader("Compararea Impactului Caracteristicii Exogene pentru Modelele ML")
+    # --- Simplified Section: Impact of Exogenous Feature ---
+    st.subheader("💡 Impactul Caracteristicii Exogene asupra Modelelor ML")
+    st.write(f"Analizând primele {num_ids_to_plot} ID-uri unice:")
+    
     ml_base_models = ['LGBMRegressor', 'XGBRegressor', 'LinearRegression']
+    comparison_metric = 'smape' # Metric used for deciding if exog helped
 
     for uid in ids_to_plot:
+        st.markdown(f"--- \n ### ID Unic: `{uid}`")
         Y_uid = Y[Y['unique_id'] == uid]
         fcst_uid = fcst[fcst['unique_id'] == uid]
 
         for base_model_name in ml_base_models:
-            col_no_exog = f"{base_model_name}_no_exog"
-            col_with_exog = f"{base_model_name}_with_exog"
+            model_name_no_exog = f"{base_model_name}_no_exog"
+            model_name_with_exog = f"{base_model_name}_with_exog"
 
-            if col_no_exog in fcst_uid.columns and col_with_exog in fcst_uid.columns:
-                plt.figure(figsize=(12, 7))
-                plt.plot(Y_uid['ds'], Y_uid['y'], label='Actual Sales', color='black', alpha=0.7)
-                plt.plot(fcst_uid['ds'], fcst_uid[col_no_exog], label=f'{base_model_name} (Fără Exogenă)', linestyle=':')
-                plt.plot(fcst_uid['ds'], fcst_uid[col_with_exog], label=f'{base_model_name} (Cu Exogenă)', linestyle='--')
+            # Check if both versions are available in forecast and evaluation data
+            if model_name_no_exog in fcst_uid.columns and model_name_with_exog in fcst_uid.columns and \
+               model_name_no_exog in eval_df['model'].values and model_name_with_exog in eval_df['model'].values:
+
+                eval_no_exog = eval_df[
+                    (eval_df['unique_id'] == uid) &
+                    (eval_df['model'] == model_name_no_exog) &
+                    (eval_df['metric'] == comparison_metric)
+                ]['error'].mean() # Use mean error over CV windows
+
+                eval_with_exog = eval_df[
+                    (eval_df['unique_id'] == uid) &
+                    (eval_df['model'] == model_name_with_exog) &
+                    (eval_df['metric'] == comparison_metric)
+                ]['error'].mean()
+
+                if pd.isna(eval_no_exog) or pd.isna(eval_with_exog):
+                    st.markdown(f"**{base_model_name}:** Date de evaluare insuficiente pentru comparație.")
+                    continue
+
+                message = ""
+                plot_this_col = None
+                plot_label_suffix = ""
+
+                if eval_with_exog < eval_no_exog:
+                    improvement = ((eval_no_exog - eval_with_exog) / eval_no_exog) * 100 if eval_no_exog != 0 else 0
+                    message = f"<h3 style='color:green;'>DA ✔️</h3> Caracteristica exogenă a **ÎMBUNĂTĂȚIT** predicția pentru **{base_model_name}** (Eroare {comparison_metric.upper()}: {eval_with_exog:.4f} vs {eval_no_exog:.4f}, îmbunătățire: {improvement:.2f}%)."
+                    plot_this_col = model_name_with_exog
+                    plot_label_suffix = "(Cu Exogenă - Mai Bun)"
+                elif eval_with_exog > eval_no_exog:
+                    worsening = ((eval_with_exog - eval_no_exog) / eval_no_exog) * 100 if eval_no_exog != 0 else 0
+                    message = f"<h3 style='color:red;'>NU ❌</h3> Caracteristica exogenă **NU A AJUTAT** (sau a înrăutățit) predicția pentru **{base_model_name}** (Eroare {comparison_metric.upper()}: {eval_with_exog:.4f} vs {eval_no_exog:.4f}, înrăutățire: {worsening:.2f}%)."
+                    plot_this_col = model_name_no_exog
+                    plot_label_suffix = "(Fără Exogenă - Mai Bun)"
+                else:
+                    message = f"<h3 style='color:orange;'>NEUTRU ➖</h3> Caracteristica exogenă **NU A AVUT IMPACT** semnificativ asupra predicției pentru **{base_model_name}** (Eroare {comparison_metric.upper()}: {eval_with_exog:.4f})."
+                    plot_this_col = model_name_no_exog # Plot one version
+                    plot_label_suffix = "(Impact Neutru)"
                 
-                # Plot confidence intervals if they exist
-                ci_lo_no_exog = f"{col_no_exog}-lo-90"
-                ci_hi_no_exog = f"{col_no_exog}-hi-90"
-                if ci_lo_no_exog in fcst_uid.columns and ci_hi_no_exog in fcst_uid.columns:
-                    plt.fill_between(fcst_uid['ds'], fcst_uid[ci_lo_no_exog], fcst_uid[ci_hi_no_exog], alpha=0.15, label=f'{base_model_name} (Fără Exogenă) 90% CI')
+                st.markdown(message, unsafe_allow_html=True)
 
-                ci_lo_with_exog = f"{col_with_exog}-lo-90"
-                ci_hi_with_exog = f"{col_with_exog}-hi-90"
-                if ci_lo_with_exog in fcst_uid.columns and ci_hi_with_exog in fcst_uid.columns:
-                    plt.fill_between(fcst_uid['ds'], fcst_uid[ci_lo_with_exog], fcst_uid[ci_hi_with_exog], alpha=0.15, label=f'{base_model_name} (Cu Exogenă) 90% CI')
+                # Plot only the better performing or default version
+                plt.figure(figsize=(10, 5))
+                plt.plot(Y_uid['ds'], Y_uid['y'], label='Actual Sales', color='black', alpha=0.8)
+                
+                ci_col_lo = f"{plot_this_col}-lo-90"
+                ci_col_hi = f"{plot_this_col}-hi-90"
 
-                plt.title(f'Impact Caracteristică Exogenă: {base_model_name} pentru {uid}')
+                plt.plot(fcst_uid['ds'], fcst_uid[plot_this_col], label=f'{base_model_name} {plot_label_suffix}', linestyle='--')
+                if ci_col_lo in fcst_uid.columns and ci_col_hi in fcst_uid.columns:
+                     plt.fill_between(fcst_uid['ds'], fcst_uid[ci_col_lo], fcst_uid[ci_col_hi], alpha=0.2, label='90% CI')
+                
+                plt.title(f'Performanță {base_model_name} pentru {uid}')
                 plt.legend()
                 plt.xlabel('Data')
                 plt.ylabel('Vânzări')
-
                 historical_to_show = Y_uid.tail(3 * horizon)
                 if not historical_to_show.empty and not fcst_uid.empty:
                     min_date = min(historical_to_show['ds'].min(), fcst_uid['ds'].min())
                     max_date = fcst_uid['ds'].max()
                     plt.xlim([min_date, max_date])
-                
-                display_current_fig(f'exog_impact_{base_model_name}_{uid}')
-            elif col_no_exog in fcst_uid.columns and col_with_exog not in fcst_uid.columns:
-                # This case might occur if external feature was all NaN and _with_exog models weren't trained/renamed
-                st.caption(f"Pentru {uid}, modelul {base_model_name} nu are o variantă 'cu exogenă' disponibilă în setul de date al previziunilor (posibil caracteristica exogenă să fi fost invalidă).")
-
-
-    st.write("Distribuția Erorilor pe Metrici (MSE, sMAPE):")
-    for metric in ['mse', 'smape']:
-        subset = eval_df[eval_df['metric'] == metric]
-        plt.figure()
-        plt.title(f'Distribuția {metric.upper()}')
-        sns.violinplot(data=subset, x='error', y='model', orient='h')
-        plt.xlabel(f'{metric.upper()} Error')
-        plt.ylabel('Model')
-        plt.tight_layout()
-        display_current_fig(f'{metric}_violin_plot')
-
-    st.write("Modele Câștigătoare per Metrică:")
-    winners = (
-        eval_df.loc[eval_df.groupby(['unique_id', 'metric'])['error'].idxmin()]
-        .groupby(['metric', 'model'])
-        .size()
-        .reset_index(name='n_wins')
-    )
-    plt.figure()
-    plt.title('Număr de "Victorii" per Model și Metrică')
-    try:
-        sns.barplot(data=winners, x='n_wins', y='model', hue='metric')
-        plt.xlabel('Număr de "Victorii" (cea mai mică eroare)')
-        plt.ylabel('Model')
-        plt.tight_layout()
-        display_current_fig('winners_per_metric_plot')
-    except ValueError as e:
-        st.warning(f"Nu s-a putut genera graficul modelelor câștigătoare: {e}")
+                display_current_fig(f'exog_impact_simplified_{base_model_name}_{uid}')
+            
+            elif model_name_no_exog in fcst_uid.columns: # Only no_exog version exists
+                 st.markdown(f"**{base_model_name}:** Doar varianta fără caracteristică exogenă este disponibilă.")
+                 plt.figure(figsize=(10, 5))
+                 plt.plot(Y_uid['ds'], Y_uid['y'], label='Actual Sales', color='black', alpha=0.8)
+                 plt.plot(fcst_uid['ds'], fcst_uid[model_name_no_exog], label=f'{base_model_name} (Fără Exogenă)', linestyle='--')
+                 ci_col_lo = f"{model_name_no_exog}-lo-90"
+                 ci_col_hi = f"{model_name_no_exog}-hi-90"
+                 if ci_col_lo in fcst_uid.columns and ci_col_hi in fcst_uid.columns:
+                     plt.fill_between(fcst_uid['ds'], fcst_uid[ci_col_lo], fcst_uid[ci_col_hi], alpha=0.2, label='90% CI')
+                 plt.title(f'Performanță {base_model_name} (Fără Exogenă) pentru {uid}')
+                 plt.legend()
+                 plt.xlabel('Data')
+                 plt.ylabel('Vânzări')
+                 historical_to_show = Y_uid.tail(3 * horizon)
+                 if not historical_to_show.empty and not fcst_uid.empty:
+                    min_date = min(historical_to_show['ds'].min(), fcst_uid['ds'].min())
+                    max_date = fcst_uid['ds'].max()
+                    plt.xlim([min_date, max_date])
+                 display_current_fig(f'exog_impact_simplified_{base_model_name}_{uid}_no_exog_only')
+            else:
+                st.markdown(f"**{base_model_name}:** Date insuficiente pentru afișare.")
+    st.divider()
+    # Removed other plots (error distribution, winners per metric)
