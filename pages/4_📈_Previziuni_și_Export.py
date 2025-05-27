@@ -4,9 +4,8 @@ from state_tools import init_state
 import pickle
 from pathlib import Path
 import streamlit_authenticator as stauth
-import pandas as pd # Ensure pandas is imported, might be needed by visualize_forecasting_results or for robustness
 
-# --- Authentication (aligned with app.py) ---
+# --- Authentication ---
 # --- încărcare parole ---
 file_path = Path(__file__).resolve().parent.parent / "hashed_pw.pkl" # Adjusted path
 with file_path.open("rb") as file:
@@ -23,81 +22,77 @@ for idx, un in enumerate(usernames):
     }
 
 authenticator = stauth.Authenticate(
-    credentials=credentials, # Use keyword arguments
-    cookie_name="some_cookie_name",    # Must match app.py
-    key="some_signature_key",          # Must match app.py
+    credentials,
+    "some_cookie_name",
+    "some_signature_key",
     cookie_expiry_days=30
 )
 
-# --- Retrieve authentication status from session state ---
-name_from_session = st.session_state.get("name")
-authentication_status_from_session = st.session_state.get("authentication_status")
-# username_from_session = st.session_state.get("username") # Uncomment if 'username' is needed
+name, authentication_status, username = authenticator.login('main', fields = {'Form name': 'Login'})
 
-# --- Page logic based on authentication status ---
-if authentication_status_from_session:
-    authenticator.logout("Logout", "sidebar")
-    init_state() # Initialize state for authenticated users
+if not authentication_status:
+    if authentication_status == False:
+        st.error('Username/password is incorrect')
+    elif authentication_status == None:
+        st.warning('Please enter your username and password')
+    st.stop()
 
-    # --- Page specific content ---
-    st.header(f"📈 Vizualizări & Export Previziuni - Welcome *{name_from_session}*")
+authenticator.logout("Logout", "sidebar")
+# --- End Authentication ---
 
-    if not st.session_state.get("pipeline_ran"):
-        st.info("Rulează pagina **Modele & CV** înainte de export.")
-        st.stop()
+init_state()
+st.header("📈 Vizualizări & Export Previziuni")
 
-    forecast_df = st.session_state.forecast_df
-    best_model = st.session_state.best_model
-    leaderboard = st.session_state.leaderboard
+if not st.session_state.get("pipeline_ran"):
+    st.info("Rulează pagina **Modele & CV** înainte de export.")
+    st.stop()
 
-    # --- Vizualizări
-    visualize_forecasting_results(
-        st.session_state.Y_df,
-        forecast_df,
-        st.session_state.cv_df,
-        st.session_state.eval_df,
-        leaderboard, 
-        best_model,   
-        st.session_state.horizon,
-    )
+forecast_df = st.session_state.forecast_df
+best_model = st.session_state.best_model
+leaderboard = st.session_state.leaderboard
 
-    # --- Export logic
-    st.subheader("📁 Exportă Previziuni")
-    all_forecast_columns = [
-        c for c in forecast_df.columns
-        if c not in ("unique_id", "ds", "y") and not c.endswith("-lo-90") and not c.endswith("-hi-90")
-    ]
-    options = ["🏆 Cel mai bun model"] + sorted(list(set(all_forecast_columns))) 
-    choice = st.selectbox("Selectează previziunea pentru export:", options)
+# --- Vizualizări
+visualize_forecasting_results(
+    st.session_state.Y_df,
+    forecast_df,
+    st.session_state.cv_df,
+    st.session_state.eval_df,
+    st.session_state.leaderboard, # Pass leaderboard
+    st.session_state.best_model,   # Pass best_model_overall
+    st.session_state.horizon,
+)
 
-    export_col_name = None
-    if choice == "🏆 Cel mai bun model":
-        potential_with_exog = f"{best_model}_with_exog"
-        potential_no_exog = f"{best_model}_no_exog" # Assuming ML models might not have suffix if exog not used
-        if potential_with_exog in forecast_df.columns:
-            export_col_name = potential_with_exog
-        elif f"{best_model}" in forecast_df.columns and (potential_no_exog in forecast_df.columns and best_model.endswith("_no_exog")): # if best_model already has _no_exog
-             export_col_name = best_model
-        elif potential_no_exog in forecast_df.columns: # if best_model is base and _no_exog variant exists
-             export_col_name = potential_no_exog
-        elif best_model in forecast_df.columns: 
-            export_col_name = best_model
-        else:
-            st.error(f"Nu s-a putut găsi coloana pentru cel mai bun model '{best_model}' în setul de date al previziunilor. Coloane disponibile: {forecast_df.columns.tolist()}")
-            st.stop()
+# --- Export logic
+st.subheader("📁 Exportă Previziuni")
+# Get all potential model forecast columns from the forecast_df
+all_forecast_columns = [
+    c for c in forecast_df.columns
+    if c not in ("unique_id", "ds", "y") and not c.endswith("-lo-90") and not c.endswith("-hi-90")
+]
+options = ["🏆 Cel mai bun model"] + sorted(list(set(all_forecast_columns))) # Use set to ensure unique names
+choice = st.selectbox("Selectează previziunea pentru export:", options)
+
+export_col_name = None
+if choice == "🏆 Cel mai bun model":
+    # best_model is a base name like 'LGBMRegressor' or 'AutoETS'
+    # We need to find the corresponding column in forecast_df
+    # Prioritize '_with_exog' for ML models if it exists
+    potential_with_exog = f"{best_model}_with_exog"
+    potential_no_exog = f"{best_model}_no_exog"
+    if potential_with_exog in forecast_df.columns:
+        export_col_name = potential_with_exog
+    elif potential_no_exog in forecast_df.columns:
+        export_col_name = potential_no_exog
+    elif best_model in forecast_df.columns: # For StatsForecast models or ML models if somehow no suffix was applied
+        export_col_name = best_model
     else:
-        export_col_name = choice
+        st.error(f"Nu s-a putut găsi coloana pentru cel mai bun model '{best_model}' în setul de date al previziunilor.")
+        st.stop()
+else:
+    export_col_name = choice
 
-    if export_col_name and export_col_name in forecast_df.columns:
-        export_df = forecast_df[["unique_id", "ds", export_col_name]].rename(columns={export_col_name: "yhat"})
-        csv = export_df.to_csv(index=False).encode("utf-8")
-        st.download_button("📥 Download CSV", data=csv, file_name=f"forecast_{export_col_name}.csv")
-        st.dataframe(export_df.head())
-    elif export_col_name: # if export_col_name was set but not found (should be caught above)
-        st.error(f"Coloana selectată pentru export '{export_col_name}' nu a fost găsită.")
-
-elif authentication_status_from_session == False:
-    st.error('Username/password is incorrect')
-elif authentication_status_from_session is None:
-    st.warning('Please enter your username and password')
-    st.info("Please log in through the main application page to access this page.")
+if export_col_name and export_col_name in forecast_df.columns:
+    export_df = forecast_df[["unique_id", "ds", export_col_name]].rename(columns={export_col_name: "yhat"})
+    csv = export_df.to_csv(index=False).encode("utf-8")
+    st.download_button("📥 Download CSV", data=csv, file_name=f"forecast_{export_col_name}.csv")
+    st.dataframe(export_df.head())

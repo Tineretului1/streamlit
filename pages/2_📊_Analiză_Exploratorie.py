@@ -5,7 +5,7 @@ import pickle
 from pathlib import Path
 import streamlit_authenticator as stauth
 
-# --- Authentication (aligned with app.py) ---
+# --- Authentication ---
 # --- încărcare parole ---
 file_path = Path(__file__).resolve().parent.parent / "hashed_pw.pkl" # Adjusted path
 with file_path.open("rb") as file:
@@ -22,34 +22,30 @@ for idx, un in enumerate(usernames):
     }
 
 authenticator = stauth.Authenticate(
-    credentials=credentials, # Use keyword arguments
-    cookie_name="some_cookie_name",    # Must match app.py
-    key="some_signature_key",          # Must match app.py
+    credentials,
+    "some_cookie_name",
+    "some_signature_key",
     cookie_expiry_days=30
 )
 
-# --- Retrieve authentication status from session state ---
-name_from_session = st.session_state.get("name")
-authentication_status_from_session = st.session_state.get("authentication_status")
-# username_from_session = st.session_state.get("username") # Uncomment if 'username' is needed
+name, authentication_status, username = authenticator.login('main', fields = {'Form name': 'Login'})
 
-# --- Page logic based on authentication status ---
-if authentication_status_from_session:
-    authenticator.logout("Logout", "sidebar")
-    init_state() # Initialize state for authenticated users
+if not authentication_status:
+    if authentication_status == False:
+        st.error('Username/password is incorrect')
+    elif authentication_status == None:
+        st.warning('Please enter your username and password')
+    st.stop()
 
-    # --- Page specific content ---
-    st.header(f"📊 Analiză Exploratorie - Welcome *{name_from_session}*")
+authenticator.logout("Logout", "sidebar")
+# --- End Authentication ---
 
-    Y_df = st.session_state.get("Y_df")
-    if Y_df is None:
-        st.info("Întâi încarcă datele în pagina **Upload & Config**.")
-        st.stop()
+init_state()
+st.header("📊 Analiză Exploratorie")
 
-    perform_exploratory_analysis(Y_df)
+Y_df = st.session_state.get("Y_df")
+if Y_df is None:
+    st.info("Întâi încarcă datele în pagina **Upload & Config**.")
+    st.stop()
 
-elif authentication_status_from_session == False:
-    st.error('Username/password is incorrect')
-elif authentication_status_from_session is None:
-    st.warning('Please enter your username and password')
-    st.info("Please log in through the main application page to access this page.")
+perform_exploratory_analysis(Y_df)
