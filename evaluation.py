@@ -13,7 +13,7 @@ def perform_cross_validation(_sf: StatsForecast, _mlf: MLForecast,
                              Y: pd.DataFrame, horizon: int) -> pd.DataFrame:
     cv_sf  = _sf.cross_validation(df=Y, h=horizon, n_windows=3, step_size=horizon)
     cv_mlf = _mlf.cross_validation(df=Y, h=horizon, n_windows=3, step_size=horizon,
-                                  level=[90])
+                                  level=[90], static_features=[])
     return cv_sf.merge(cv_mlf.drop(columns=['y']),
                        on=['unique_id', 'ds', 'cutoff'], how='left')
 

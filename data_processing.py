@@ -14,7 +14,7 @@ def _find_column(cols: pd.Index, pattern: str) -> str:
     return candidates[0]
 
 @st.cache_data
-def load_and_prepare(uploaded_file, stores: list[str] | None = None,
+def load_and_prepare(uploaded_file, uploaded_external_file=None, stores: list[str] | None = None,
                      max_rows: int = 10_000_000) -> pd.DataFrame:
     """
     Încarcă și pregătește datele de vânzări.
@@ -30,7 +30,7 @@ def load_and_prepare(uploaded_file, stores: list[str] | None = None,
     df_initial = pd.read_csv(uploaded_file, nrows=max_rows)
 
     if df_initial.empty:
-        st.error("Fișierul CSV încărcat este gol sau nu a putut fi citit corect.")
+        st.error("Fișierul CSV principal încărcat este gol sau nu a putut fi citit corect.")
         return pd.DataFrame()
 
     # 1. Găsește numele coloanelor necesare (case-insensitive)
@@ -124,6 +124,84 @@ def load_and_prepare(uploaded_file, stores: list[str] | None = None,
     )
     
     full_df['y'] = full_df['y'].astype(float)
+
+    # Procesare fișier extern, dacă este furnizat
+    if uploaded_external_file is not None:
+        try:
+            uploaded_external_file.seek(0)
+            df_ext = pd.read_csv(uploaded_external_file) # Use a temporary name
+
+            if df_ext.empty:
+                st.info("Fișierul de date externe este gol și va fi ignorat.")
+                # df_ext remains empty, so no merge will happen
+            elif len(df_ext.columns) != 2:
+                st.warning(
+                    f"Fișierul de date externe trebuie să conțină exact două coloane (o coloană de dată și o coloană de preț/valoare). "
+                    f"Am găsit {len(df_ext.columns)} coloane: {', '.join(df_ext.columns)}. Fișierul va fi ignorat."
+                )
+                df_ext = pd.DataFrame() # Mark as empty to skip merge
+            else:
+                # Has exactly two columns
+                col1_name, col2_name = df_ext.columns[0], df_ext.columns[1]
+                date_col_original_name = None
+                price_col_original_name = None
+                valid_external_data = False
+
+                # Try to identify date and price columns
+                try:
+                    # Test col1 as date
+                    pd.to_datetime(df_ext[col1_name], errors='raise', infer_datetime_format=True)
+                    date_col_original_name = col1_name
+                    price_col_original_name = col2_name
+                    valid_external_data = True
+                except (ValueError, TypeError, pd.errors.ParserError):
+                    # col1 failed, try col2 as date
+                    try:
+                        pd.to_datetime(df_ext[col2_name], errors='raise', infer_datetime_format=True)
+                        date_col_original_name = col2_name
+                        price_col_original_name = col1_name
+                        valid_external_data = True
+                    except (ValueError, TypeError, pd.errors.ParserError):
+                        st.warning(
+                            f"Nu s-a putut identifica o coloană de dată validă în fișierul extern din coloanele '{col1_name}' și '{col2_name}'. "
+                            "Asigurați-vă că una dintre coloane conține date calendaristice valide (ex: YYYY-MM-DD). Fișierul va fi ignorat."
+                        )
+                        df_ext = pd.DataFrame() # Mark as empty
+
+                if valid_external_data and not df_ext.empty:
+                    st.info(f"În fișierul extern, coloana de dată identificată: '{date_col_original_name}', "
+                              f"coloana de preț/valoare identificată: '{price_col_original_name}'.")
+                    
+                    # Create new columns for 'ds' and 'external_feature' to avoid SettingWithCopyWarning
+                    df_temp = pd.DataFrame()
+                    df_temp['ds'] = pd.to_datetime(df_ext[date_col_original_name])
+                    df_temp['external_feature'] = df_ext[price_col_original_name]
+                    
+                    df_ext = df_temp # Replace df_ext with the new DataFrame
+
+                    # Asigură-te că 'external_feature' este numeric
+                    df_ext['external_feature'] = pd.to_numeric(df_ext['external_feature'], errors='coerce')
+
+                    # Elimină duplicatele de date (pe baza 'ds'), păstrând prima apariție pentru a asigura granularitatea zilnică
+                    df_ext = df_ext.drop_duplicates(subset=['ds'], keep='first')
+
+                    # Verifică dacă df_ext mai are date după procesare
+                    if df_ext.empty or df_ext['external_feature'].isnull().all():
+                        st.warning(f"După procesare, fișierul extern nu conține date valide sau toate valorile prețului/valorii sunt nule. Va fi ignorat.")
+                    else:
+                        full_df = pd.merge(full_df, df_ext, on='ds', how='left')
+                        # Umple valorile NaN în coloana de feature extern folosind ffill și apoi bfill
+                        full_df['external_feature'] = full_df['external_feature'].ffill().bfill()
+
+                        if 'external_feature' in full_df.columns:
+                             st.info(f"Datele externe din coloana originală '{price_col_original_name}' au fost integrate ca 'external_feature'.")
+                        if 'external_feature' in full_df.columns and full_df['external_feature'].isnull().any():
+                             st.warning("Unele valori pentru caracteristica externă (după ffill/bfill și integrare) rămân NaN.")
+                elif not valid_external_data: # This case is if parsing failed and df_ext was already set to empty
+                    pass # Warning already shown, df_ext is empty.
+            # If df_ext is empty at this point (either initially, or due to validation failure), no merge happens.
+        except Exception as e:
+            st.error(f"Eroare la procesarea fișierului de date externe: {e}. Acesta va fi ignorat.")
 
     st.success(f"Pregătirea datelor finalizată. DataFrame final conține {len(full_df)} rânduri.")
     return full_df

@@ -9,6 +9,7 @@ st.header("📂 Upload & Config")
 
 # Sidebar controls
 uploaded_file = st.sidebar.file_uploader("Încarcă fișierul train.csv", type="csv")
+uploaded_external_file = st.sidebar.file_uploader("Încarcă fișierul de date externe (ex: preț gaz)", type="csv")
 horizon = st.sidebar.number_input("Orizont de Prognoză (zile)",
                                   min_value=1, value=config.HORIZON_DEFAULT)
 season_length = st.sidebar.number_input("Lungimea Sezonului (zile)",
@@ -28,7 +29,7 @@ if run_btn:
 
     with st.spinner("⏳ Se încarcă și pregătesc datele…"):
         stores_list = [s.strip() for s in stores_str.split(",") if s.strip()] or None
-        Y_df = load_and_prepare(uploaded_file, stores=stores_list, max_rows=max_rows)
+        Y_df = load_and_prepare(uploaded_file, uploaded_external_file=uploaded_external_file, stores=stores_list, max_rows=max_rows)
 
     if Y_df.empty:
         st.error("Datele nu au putut fi procesate.")
@@ -37,6 +38,7 @@ if run_btn:
     # Save everything we will need later
     st.session_state.update(
         Y_df=Y_df,
+        uploaded_external_file=uploaded_external_file,
         horizon=horizon,
         season_length=season_length,
         window_size_ml=window_size_ml,
