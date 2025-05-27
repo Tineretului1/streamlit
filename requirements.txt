@@ -10,3 +10,5 @@ xgboost
 scikit-learn
 darts
 window-ops
+streamlit_authenticator
+pickle
