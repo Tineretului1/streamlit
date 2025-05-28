@@ -3,8 +3,26 @@ from pathlib import Path
 import streamlit as st
 import streamlit_authenticator as stauth
 from state_tools import init_state   # proprie
+init_state() # Initialize session state, including 'themebutton'
 
 st.set_page_config(page_title="🚀 Pipeline de Prognoză", layout="wide")
+
+# Apply theme based on session state
+# IMPORTANT: This must be called before other elements for the theme to apply correctly on first load/rerun
+current_theme = st.session_state.get('themebutton', 'dark') # Get theme
+
+if current_theme == 'dark':
+    st._config.set_option('theme.base', "dark")
+    st._config.set_option('theme.backgroundColor', "#1c1c1e")           # dark gray (background)
+    st._config.set_option('theme.secondaryBackgroundColor', "#2c2c2e")  # slightly lighter dark gray
+    st._config.set_option('theme.primaryColor', "#ff79c6")              # soft pink
+    st._config.set_option('theme.textColor', "#f8f8f2")                 # light neutral text
+else:  # Light theme
+    st._config.set_option('theme.base', "light")
+    st._config.set_option('theme.backgroundColor', "#fdfdfd")           # warm white
+    st._config.set_option('theme.secondaryBackgroundColor', "#e6f0ff")  # soft blue background
+    st._config.set_option('theme.primaryColor', "#1e90ff")              # dodger blue
+    st._config.set_option('theme.textColor', "#1a1a1a")                 # dark gray text
 
 # ----------------------------------
 #  🔐 Authentication Configuration
@@ -52,9 +70,30 @@ name = st.session_state.get("name") # Use name from session_state for consistenc
 
 if auth_status:
     # -------------------- Logged-in area --------------------
+# Theme toggle button
+    
+    button_label = "☾" if current_theme == 'light' else "🌣"
+    if st.sidebar.button(button_label, key="theme_toggle_button"):
+        selected = st.session_state['themebutton']
+        if selected=='light':
+            #st._config.set_option(f'theme.backgroundColor' ,"white" )
+            st._config.set_option(f'theme.base' ,"dark" )
+            st._config.set_option('theme.backgroundColor', "#1c1c1e")           
+            st._config.set_option('theme.secondaryBackgroundColor', "#2c2c2e")  
+            st._config.set_option('theme.primaryColor', "#ff79c6")              
+            st._config.set_option('theme.textColor', "#f8f8f2")                 
+            st.session_state['themebutton'] = 'dark'
+        else:
+            st._config.set_option('theme.base', "light")
+            st._config.set_option('theme.backgroundColor', "#fdfdfd")           # warm white
+            st._config.set_option('theme.secondaryBackgroundColor', "#e6f0ff")  # soft blue background
+            st._config.set_option('theme.primaryColor', "#1e90ff")              # dodger blue
+            st._config.set_option('theme.textColor', "#1a1a1a")                 # dark gray text
+            st.session_state['themebutton'] = 'light'
+        st.rerun()
+
     authenticator.logout("Logout", "sidebar")
     # No st.sidebar.success here as per original app.py structure, main title serves as welcome.
-    init_state()
 
     st.title(f"📊 Dashboard Pipeline - Welcome *{name}*") # Uses name from session_state
     st.markdown(
@@ -75,4 +114,4 @@ if auth_status:
 elif auth_status is False:
     st.error('Username/password is incorrect')
 elif auth_status is None: # Covers the case where login form is displayed or not yet interacted with
-    st.warning('Please enter your username and password')
+    st.warning('Please enter your username and password')	

@@ -6,6 +6,22 @@ import pickle
 from pathlib import Path
 import streamlit_authenticator as stauth
 import pandas as pd
+init_state()
+
+current_theme_to_apply = st.session_state.get('themebutton', 'light') # Get theme, default to light if not set
+
+if current_theme_to_apply == 'dark':
+    st._config.set_option('theme.base', "dark")
+    st._config.set_option('theme.backgroundColor', "#1c1c1e")           # dark gray (background)
+    st._config.set_option('theme.secondaryBackgroundColor', "#2c2c2e")  # slightly lighter dark gray
+    st._config.set_option('theme.primaryColor', "#ff79c6")              # soft pink
+    st._config.set_option('theme.textColor', "#f8f8f2")                 # light neutral text
+else:  # Light theme
+    st._config.set_option('theme.base', "light")
+    st._config.set_option('theme.backgroundColor', "#fdfdfd")           # warm white
+    st._config.set_option('theme.secondaryBackgroundColor', "#e6f0ff")  # soft blue background
+    st._config.set_option('theme.primaryColor', "#1e90ff")              # dodger blue
+    st._config.set_option('theme.textColor', "#1a1a1a")                 # dark gray text
 
 # ----------------------------------
 #  🔐 Authentication Configuration
@@ -50,7 +66,7 @@ if auth_status:
     authenticator.logout("Logout", "sidebar")
     st.sidebar.success(f"Logged in as **{name_from_session}**") # Display name from session_state
 
-    init_state() # Initialize state for authenticated users
+     # Initialize state for authenticated users
 
     # --- Page specific content ---
     st.header(f"🤖 Antrenare Modele & Cross-Validation - Welcome *{name_from_session}*")

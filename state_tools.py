@@ -9,6 +9,7 @@ DEFAULTS = dict(
     best_model=None,
     cv_df=None,
     eval_df=None,
+    themebutton='light', # Default theme
 )
 
 def init_state():
