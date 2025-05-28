@@ -6,8 +6,8 @@ from pathlib import Path
 import config
 from data_processing import load_and_prepare
 from state_tools import init_state
-import streamlit_authenticator as stauth
-init_state()
+# import streamlit_authenticator as stauth # Removed
+init_state() # Keep for standalone page runs, though app.py also calls it.
 
 current_theme_to_apply = st.session_state.get('themebutton', 'light') # Get theme, default to light if not set
 
@@ -25,46 +25,20 @@ else:  # Light theme
     st._config.set_option('theme.textColor', "#1a1a1a")                 # dark gray text
 
 # ----------------------------------
-#  🔐 Authentication Configuration
+#  🔐 Authentication Check (using Supabase from app.py)
 # ----------------------------------
-# Load the list of hashed passwords that you generated beforehand.
-HASHED_PW_PATH = Path(__file__).resolve().parent.parent / "hashed_pw.pkl"
-with HASHED_PW_PATH.open("rb") as file:
-    hashed_passwords = pickle.load(file)
-
-# Define users and build the credentials dictionary required by
-# **streamlit-authenticator ≥ 0.3**
-NAMES = ["Sandru Rares", "Trial Account"]
-USERNAMES = ["rrares", "trial"]
-
-credentials = {
-    "usernames": {
-        un: {"name": nm, "password": pw}
-        for un, nm, pw in zip(USERNAMES, NAMES, hashed_passwords)
-    }
-}
-
-# Instantiate the authenticator
-authenticator = stauth.Authenticate(
-    credentials=credentials,
-    cookie_name="demo_app_cookie",   # 👈 unique cookie name
-    key="demo_app_signature",        # 👈 random secret key
-    cookie_expiry_days=30,
-)
-
-# Draw the login form (or nothing if already logged-in)
-authenticator.login()  # form title & location in the layout
-
-# -------------------------------------------------------------------
-#  🔑 Handle the authentication state held in `st.session_state`
-# -------------------------------------------------------------------
-auth_status = st.session_state.get("authentication_status")
-
-if auth_status:
+if not st.session_state.get("user_email"):
+    st.warning("🔑 Please log in to access this page.")
+    # Attempt to use st.page_link, if not available, provide instructions.
+    try:
+        st.page_link("app.py", label="Go to Login Page", icon="🏠")
+    except AttributeError:
+        st.info("Navigate to the main page to log in.")
+    st.stop()
+else:
     # -------------------- Logged-in area --------------------
-    authenticator.logout("Logout", "sidebar")
-    st.sidebar.success(f"Logged in as **{st.session_state.get('name', '')}**")
-
+    # Logout is handled in app.py, no need for authenticator.logout here
+    st.sidebar.success(f"Logged in as **{st.session_state.get('user_email', '')}**")
 
     st.header("📂 Upload & Config")
 
@@ -133,7 +107,8 @@ if auth_status:
             mime="text/csv",
         )
 
-elif auth_status is False:
-    st.error("Username/password is incorrect")
-else:
-    st.warning("Please enter your username and password")
+# Removed old authenticator messages
+# elif auth_status is False:
+#     st.error("Username/password is incorrect")
+# else:
+#     st.warning("Please enter your username and password")

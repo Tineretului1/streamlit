@@ -1,101 +1,133 @@
 import pickle
 from pathlib import Path
 import streamlit as st
-import streamlit_authenticator as stauth
+from supabase import create_client, Client
 from state_tools import init_state   # proprie
-init_state() # Initialize session state, including 'themebutton'
 
+# Initialize session state, including 'themebutton'
+init_state()
+
+# Set up the page
 st.set_page_config(page_title="🚀 Pipeline de Prognoză", layout="wide")
 
-# Apply theme based on session state
-# IMPORTANT: This must be called before other elements for the theme to apply correctly on first load/rerun
-current_theme = st.session_state.get('themebutton', 'dark') # Get theme
+# ----------------------------------
+#  🔐 Supabase Authentication Setup
+# ----------------------------------
+# Initialize Supabase client
+supabase_url = st.secrets["SUPABASE_URL"]
+supabase_key = st.secrets["SUPABASE_KEY"]
+supabase: Client = create_client(supabase_url, supabase_key)
 
+# Authentication functions
+
+def sign_up(email, password):
+    try:
+        user = supabase.auth.sign_up({"email": email, "password": password})
+        return user
+    except Exception as e:
+        st.error(f"Registration failed: {e}")
+
+
+def sign_in(email, password):
+    try:
+        user = supabase.auth.sign_in_with_password({"email": email, "password": password})
+        return user
+    except Exception as e:
+        st.error(f"Login failed: {e}")
+
+
+def sign_out():
+    try:
+        supabase.auth.sign_out()
+        st.session_state.user_email = None
+
+        # Clear data related to training and files
+        keys_to_delete = [
+            "Y_df", "uploaded_external_file", "horizon", "season_length",
+            "window_size_ml", "pipeline_ran", "forecast_df", "cv_df",
+            "eval_df", "best_model", "leaderboard", "mlf_model_no_exog",
+            "mlf_model_with_exog", "train_csv", "external_csv"
+        ]
+        for key in keys_to_delete:
+            if key in st.session_state:
+                del st.session_state[key]
+        
+        st.success("Successfully logged out and cleared session data.") # Optional: provide feedback
+        st.rerun()
+    except Exception as e:
+        st.error(f"Logout failed: {e}")
+
+# ----------------------------------
+#  🎨 Theme Configuration
+# ----------------------------------
+current_theme = st.session_state.get('themebutton', 'dark')
 if current_theme == 'dark':
     st._config.set_option('theme.base', "dark")
-    st._config.set_option('theme.backgroundColor', "#1c1c1e")           # dark gray (background)
-    st._config.set_option('theme.secondaryBackgroundColor', "#2c2c2e")  # slightly lighter dark gray
-    st._config.set_option('theme.primaryColor', "#ff79c6")              # soft pink
-    st._config.set_option('theme.textColor', "#f8f8f2")                 # light neutral text
-else:  # Light theme
+    st._config.set_option('theme.backgroundColor', "#1c1c1e")
+    st._config.set_option('theme.secondaryBackgroundColor', "#2c2c2e")
+    st._config.set_option('theme.primaryColor', "#ff79c6")
+    st._config.set_option('theme.textColor', "#f8f8f2")
+else:
     st._config.set_option('theme.base', "light")
-    st._config.set_option('theme.backgroundColor', "#fdfdfd")           # warm white
-    st._config.set_option('theme.secondaryBackgroundColor', "#e6f0ff")  # soft blue background
-    st._config.set_option('theme.primaryColor', "#1e90ff")              # dodger blue
-    st._config.set_option('theme.textColor', "#1a1a1a")                 # dark gray text
+    st._config.set_option('theme.backgroundColor', "#fdfdfd")
+    st._config.set_option('theme.secondaryBackgroundColor', "#e6f0ff")
+    st._config.set_option('theme.primaryColor', "#1e90ff")
+    st._config.set_option('theme.textColor', "#1a1a1a")
 
 # ----------------------------------
-#  🔐 Authentication Configuration
+#  🛡️ Authentication Screen
 # ----------------------------------
-# Load the list of hashed passwords.
-# For app.py, the path is relative to the file's current directory.
-HASHED_PW_PATH = Path(__file__).parent / "hashed_pw.pkl"
-with HASHED_PW_PATH.open("rb") as file:
-    hashed_passwords = pickle.load(file)     # Assuming this is a list as per 1_...py
+def auth_screen():
+    st.title("🔐 Streamlit & Supabase Auth App")
+    action = st.selectbox("Choose an action:", ["Login", "Sign Up"])
+    email = st.text_input("Email")
+    password = st.text_input("Password", type="password")
 
-# Define users and build the credentials dictionary.
-NAMES = ["Sandru Rares", "Trial Account"]
-USERNAMES = ["rrares", "trial"]
+    if action == "Sign Up" and st.button("Register"):
+        user = sign_up(email, password)
+        if user and getattr(user, 'user', None):
+            st.success("Registration successful. Please log in.")
 
-credentials = {
-    "usernames": {
-        un: {"name": nm, "password": pw}
-        for un, nm, pw in zip(USERNAMES, NAMES, hashed_passwords)
-    }
-}
+    if action == "Login" and st.button("Login"):
+        user = sign_in(email, password)
+        if user and getattr(user, 'user', None):
+            st.session_state.user_email = user.user.email
+            st.success(f"Welcome back, {email}!")
+            st.rerun()
 
-# Instantiate the authenticator.
-# Using cookie_name and key from 1_...py for consistency.
-authenticator = stauth.Authenticate(
-    credentials=credentials,
-    cookie_name="demo_app_cookie",   # Standardized cookie name
-    key="demo_app_signature",        # Standardized secret key
-    cookie_expiry_days=30,
-)
+# Initialize session state for user_email
+if "user_email" not in st.session_state:
+    st.session_state.user_email = None
 
-# Draw the login form.
-# The login call in app.py was specific, trying to keep its essence
-# but standardizing the retrieval of auth status.
-# Using the login call from the original app.py for the main page,
-# as it uses specific parameters for form name and location.
-authenticator.login()
-
-# -------------------------------------------------------------------
-#  🔑 Handle the authentication state held in `st.session_state`
-# -------------------------------------------------------------------
-# streamlit-authenticator sets these session_state variables after login() is called.
-auth_status = st.session_state.get("authentication_status")
-name = st.session_state.get("name") # Use name from session_state for consistency
-# username = st.session_state.get("username") # Available if needed
-
-if auth_status:
-    # -------------------- Logged-in area --------------------
-# Theme toggle button
-    
+# ----------------------------------
+#  🎉 Main Application
+# ----------------------------------
+def main_app(user_email):
+    # Theme toggle
     button_label = "☾" if current_theme == 'light' else "🌣"
     if st.sidebar.button(button_label, key="theme_toggle_button"):
-        selected = st.session_state['themebutton']
-        if selected=='light':
-            #st._config.set_option(f'theme.backgroundColor' ,"white" )
-            st._config.set_option(f'theme.base' ,"dark" )
-            st._config.set_option('theme.backgroundColor', "#1c1c1e")           
-            st._config.set_option('theme.secondaryBackgroundColor', "#2c2c2e")  
-            st._config.set_option('theme.primaryColor', "#ff79c6")              
-            st._config.set_option('theme.textColor', "#f8f8f2")                 
+        if st.session_state['themebutton'] == 'light':
+            st._config.set_option('theme.base', "dark")
+            st._config.set_option('theme.backgroundColor', "#1c1c1e")
+            st._config.set_option('theme.secondaryBackgroundColor', "#2c2c2e")
+            st._config.set_option('theme.primaryColor', "#ff79c6")
+            st._config.set_option('theme.textColor', "#f8f8f2")
             st.session_state['themebutton'] = 'dark'
         else:
             st._config.set_option('theme.base', "light")
-            st._config.set_option('theme.backgroundColor', "#fdfdfd")           # warm white
-            st._config.set_option('theme.secondaryBackgroundColor', "#e6f0ff")  # soft blue background
-            st._config.set_option('theme.primaryColor', "#1e90ff")              # dodger blue
-            st._config.set_option('theme.textColor', "#1a1a1a")                 # dark gray text
+            st._config.set_option('theme.backgroundColor', "#fdfdfd")
+            st._config.set_option('theme.secondaryBackgroundColor', "#e6f0ff")
+            st._config.set_option('theme.primaryColor', "#1e90ff")
+            st._config.set_option('theme.textColor', "#1a1a1a")
             st.session_state['themebutton'] = 'light'
         st.rerun()
 
-    authenticator.logout("Logout", "sidebar")
-    # No st.sidebar.success here as per original app.py structure, main title serves as welcome.
+    # Logout button
+    if st.sidebar.button("Logout"):
+        sign_out()
 
-    st.title(f"📊 Dashboard Pipeline - Welcome *{name}*") # Uses name from session_state
+    # Application content
+    st.title(f"📊 Dashboard Pipeline - Welcome *{user_email}*")
     st.markdown(
         """
         Folosește meniul din stânga pentru a încărca date, a antrena modele și
@@ -104,14 +136,15 @@ if auth_status:
         """
     )
 
-    if st.session_state.pipeline_ran:
+    if st.session_state.get('pipeline_ran', False):
         st.success("Pipeline-ul a fost deja rulat ✅")
         st.write("📈 **Previziuni disponibile:**", st.session_state.forecast_df.shape)
         st.write("🏅 **Cel mai bun model:**", st.session_state.best_model)
     else:
         st.info("Începe cu pagina **Upload & Config** ➡️")
 
-elif auth_status is False:
-    st.error('Username/password is incorrect')
-elif auth_status is None: # Covers the case where login form is displayed or not yet interacted with
-    st.warning('Please enter your username and password')	
+# Determine which screen to show
+if st.session_state.user_email:
+    main_app(st.session_state.user_email)
+else:
+    auth_screen()

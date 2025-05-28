@@ -2,11 +2,11 @@ import streamlit as st
 from forecasting_models import run_statsforecast_models, run_mlforecast_models, combine_forecasts
 from evaluation import run_all_cross_validation_and_evaluation
 from state_tools import init_state
-import pickle
-from pathlib import Path
-import streamlit_authenticator as stauth
+# import pickle # Not needed for Supabase auth
+# from pathlib import Path # Not needed for Supabase auth
+# import streamlit_authenticator as stauth # Removed
 import pandas as pd
-init_state()
+init_state() # Keep for standalone page runs
 
 current_theme_to_apply = st.session_state.get('themebutton', 'light') # Get theme, default to light if not set
 
@@ -24,52 +24,23 @@ else:  # Light theme
     st._config.set_option('theme.textColor', "#1a1a1a")                 # dark gray text
 
 # ----------------------------------
-#  🔐 Authentication Configuration
+#  🔐 Authentication Check (using Supabase from app.py)
 # ----------------------------------
-# Load the list of hashed passwords.
-HASHED_PW_PATH = Path(__file__).resolve().parent.parent / "hashed_pw.pkl"
-with HASHED_PW_PATH.open("rb") as file:
-    hashed_passwords = pickle.load(file)
-
-# Define users and build the credentials dictionary.
-NAMES = ["Sandru Rares", "Trial Account"]
-USERNAMES = ["rrares", "trial"]
-
-credentials = {
-    "usernames": {
-        un: {"name": nm, "password": pw}
-        for un, nm, pw in zip(USERNAMES, NAMES, hashed_passwords)
-    }
-}
-
-# Instantiate the authenticator.
-authenticator = stauth.Authenticate(
-    credentials=credentials,
-    cookie_name="demo_app_cookie",   # Standardized cookie name
-    key="demo_app_signature",        # Standardized secret key
-    cookie_expiry_days=30,
-)
-
-# Draw the login form.
-# This call also sets session_state variables: 'name', 'authentication_status', 'username'
-authenticator.login() # Using the standard login call
-
-# -------------------------------------------------------------------
-#  🔑 Handle the authentication state held in `st.session_state`
-# -------------------------------------------------------------------
-auth_status = st.session_state.get("authentication_status")
-name_from_session = st.session_state.get("name") # Get name from session_state
-# username_from_session = st.session_state.get("username") # Available if needed
-
-if auth_status:
+if not st.session_state.get("user_email"):
+    st.warning("🔑 Please log in to access this page.")
+    try:
+        st.page_link("app.py", label="Go to Login Page", icon="🏠")
+    except AttributeError:
+        st.info("Navigate to the main page to log in.")
+    st.stop()
+else:
     # -------------------- Logged-in area --------------------
-    authenticator.logout("Logout", "sidebar")
-    st.sidebar.success(f"Logged in as **{name_from_session}**") # Display name from session_state
+    st.sidebar.success(f"Logged in as **{st.session_state.get('user_email', '')}**")
 
      # Initialize state for authenticated users
 
     # --- Page specific content ---
-    st.header(f"🤖 Antrenare Modele & Cross-Validation - Welcome *{name_from_session}*")
+    st.header(f"🤖 Antrenare Modele & Cross-Validation - Welcome *{st.session_state.get('user_email', '')}*")
 
     if st.session_state.get("pipeline_ran"):
         st.success("Modelele sunt deja antrenate. Treci la pagina următoare ➡️")
@@ -134,9 +105,8 @@ if auth_status:
     st.success(f"🎉 Modele antrenate. Cel mai bun: **{best_model}**")
     st.dataframe(leaderboard)
 
-elif auth_status is False:
-    st.error('Username/password is incorrect')
-else: # auth_status is None
-    st.warning('Please enter your username and password')
-    # Optionally, guide to login if on a sub-page and not logged in.
-    # st.info("Please log in to access this page.")
+# Removed old authenticator messages
+# elif auth_status is False:
+#     st.error('Username/password is incorrect')
+# else: # auth_status is None
+#     st.warning('Please enter your username and password')
